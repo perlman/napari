@@ -54,7 +54,6 @@ class Labels(Layer):
         self.colormap = colormaps.label_colormap(num_colors)
         self.opacity = 0.7
 
-
         # update flags
         self._need_display_update = False
         self._need_visual_update = False
@@ -65,10 +64,9 @@ class Labels(Layer):
         self.events.colormap()
 
     def new_colormap(self):
-        self.seed = np.random.rand()
-        self._image = colormaps._low_discrepancy_image(self._raw_image, self.seed)
-        self.refresh()
-    
+        seed = np.random.random((3,))
+        self.colormap = colormaps.label_random_colormap(self._image, seed=seed)
+        self.events.colormap()
 
     def label_color(self, label):
         """Return the color corresponding to a specific label."""

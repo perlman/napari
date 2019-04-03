@@ -4,7 +4,6 @@ from .vendored import colorconv
 import numpy as np
 import vispy.color
 
-
 _matplotlib_list_file = os.path.join(os.path.dirname(__file__),
                                      'matplotlib_cmaps.txt')
 with open(_matplotlib_list_file) as fin:
@@ -183,3 +182,59 @@ def label_colormap(num_colors=256, seed=0.5):
     cmap = vispy.color.Colormap(colors=colors, controls=control_points,
                                 interpolation='zero')
     return cmap
+
+
+
+def label_random_colormap(labels, seed=[0.5,0.5,0.5], max_label=None):
+    """Attempt at a generating a random colormap shader.ArithmeticError
+
+    Parameters
+    ----------
+    labels : array of int
+        A set of labels or label image.
+    seed : float or array of float, length 3
+        The seed for the low discrepancy sequence generator.
+
+    Returns
+    -------
+    cmap : vispy.color.Colormap
+        A colormap for use with ``labels``. The labels are remapped so that
+        the maximum label falls on 1.0, since vispy requires colormaps to map
+        within [0, 1].
+    
+        Notes
+    -----
+    This is based on the shader included with neuroglancer:
+        https://github.com/google/neuroglancer/blob/master/src/neuroglancer/segment_color.ts
+
+    """
+    seed = sum(seed)
+    return LabelColormap(seed=seed)
+
+
+class LabelColormap(vispy.color.colormap.BaseColormap):
+    def __init__(self, seed=0.5):
+        self.seed = seed
+        self.update_shader()
+
+    def update_shader(self):
+        self.glsl_map = self.glsl_map_base.replace('$seed', "%.3f" % self.seed)
+    
+    colors = vispy.color.color_array.ColorArray([(0., .33, .66, 1.0),
+              (.33, .66, 1., 1.0)])
+
+    glsl_map_base = """
+    vec4 bad_random(float t) {
+        float r = fract(sin(1+(971*t*$seed)));
+        float g = fract(tan(1+(829*t*$seed)));
+        float b = fract(cos(1+(419*t*$seed)));
+        return vec4(r, g, b, 1.0);
+    }
+    """
+
+    def map(self, t):
+        # TODO: Implement this version
+        rgba = self.colors.rgba
+        smoothed = vispy.color.colormap.smoothstep(rgba[0, :3], rgba[1, :3], t)
+        return np.hstack((smoothed, np.ones((len(t), 1))))
+

@@ -1,7 +1,8 @@
 import os
 from .vendored import colorconv, cm
 import numpy as np
-from vispy.color import get_colormap, get_colormaps, BaseColormap, Colormap
+from vispy.color import get_colormap, get_colormaps, BaseColormap, Colormap, ColorArray
+import vispy
 
 _matplotlib_list_file = os.path.join(
     os.path.dirname(__file__), 'matplotlib_cmaps.txt'
@@ -302,31 +303,52 @@ CYMRGB = ['cyan', 'yellow', 'magenta', 'red', 'green', 'blue']
 
 
 class LabelColormap(BaseColormap):
-    def __init__(self, seed=None):
-        if seed is None:
-            seed = np.random.random()
-        self.seed = seed
+    def __init__(self, zero_is_black=True, hue_start=0, saturation=1.0, value=0.7, ncolors=32):
+        self.zero_is_black = zero_is_black
+        self.ncolors = 32
+        
+        # Set colors (based on vispy.colormap._HSL)
+        hues = np.linspace(0, 360, ncolors + 1)[:-1]
+        hues += hue_start
+        hues %= 360
+        colors = ColorArray([(hue, saturation, value) for hue in hues], color_space='hsv')
+        
+        self.texture_map_data = np.zeros((ncolors, 1, 4), dtype=np.float32)
+        LUT = self.texture_map_data
+        c_rgba = ColorArray(colors)._rgba
+        colors_rgba = ColorArray(colors[:])._rgba
+        LUT[:, 0, :] = colors_rgba
+
         self.glsl_map_base = """
+        uniform sampler2D texture2D_LUT;
         vec4 random(float t) {
-            if (t == 0) {
-                return vec4(0, 0, 0, 0);
-            }
-            float r = 0.1 + 0.9 * fract(sin(13*t + t/$seed));
-            float g = 0.1 + 0.9 * fract(tan(37*t + t/$seed));
-            float b = 0.1 + 0.9 * fract(cos(17*t + t/$seed));
-            return vec4(r, g, b, 1.0);
+            $zero_is_black
+            return texture2D(texture2D_LUT, vec2(0.0, t));
         }
         """
-        self.update_shader(seed)
+        self.update_shader()
         super().__init__()
 
-    def update_shader(self, seed):
-        self.seed = seed
-        self.glsl_map = self.glsl_map_base.replace('$seed', f'{seed:.3f}')
+    def update_shader(self):
+        self.glsl_map = self.glsl_map_base
+        if (self.zero_is_black):
+            self.glsl_map = self.glsl_map.replace('$zero_is_black', 'if (t == 0.0) { return vec4(0.0, 0.0, 0.0, 0.0); }')
+        else:
+            self.glsl_map = self.glsl_map.replace('$zero_is_black', '')
 
     def map(self, t):
-        r = 0.1 + 0.9 * (np.sin(13 * t + t / self.seed) % 1)
-        g = 0.1 + 0.9 * (np.tan(37 * t + t / self.seed) % 1)
-        b = 0.1 + 0.9 * (np.cos(17 * t + t / self.seed) % 1)
+        t_index = np.mod((t * self.ncolors).astype(np.int), self.ncolors)
+        r = self.texture_map_data[t_index,0,0]
+        g = self.texture_map_data[t_index,0,1]
+        b = self.texture_map_data[t_index,0,2]
         colors = np.concatenate((r, g, b, np.ones_like(b)), axis=1)
-        return np.where(t == 0, np.zeros_like(colors), colors)
+        if self.zero_is_black:
+            return np.where(t == 0, np.zeros_like(colors), colors)
+        else:
+            return colors
+
+    def texture_lut(self):
+        # Called from vispy.visuals.image
+        texture_LUT = vispy.gloo.Texture2D(np.zeros(self.texture_map_data.shape), wrapping='repeat')
+        texture_LUT.set_data(self.texture_map_data, offset=None, copy=True)
+        return texture_LUT

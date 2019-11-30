@@ -389,8 +389,6 @@ class Image(Layer):
     def _raw_to_displayed(self, raw):
         """Determine displayed image from raw image.
 
-        For normal image layers, just return the actual image.
-
         Parameters
         -------
         raw : array

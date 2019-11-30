@@ -1,6 +1,7 @@
 from collections import deque
 from copy import copy
 from typing import Union
+from zlib import crc32
 
 import numpy as np
 from scipy import ndimage as ndi
@@ -131,8 +132,9 @@ class Labels(Image):
     ):
 
         self._seed = seed
+        self._seedhash = crc32(bytes(int(2**32 * seed)))
         self._num_colors = num_colors
-        colormap = ('random', colormaps.LabelColormap(seed))
+        colormap = ('random', colormaps.LabelColormap())
 
         super().__init__(
             data,
@@ -218,13 +220,13 @@ class Labels(Image):
 
     @property
     def seed(self):
-        """float: Seed for colormap random generator."""
+        """int: Seed for colormap random generator."""
         return self._seed
 
     @seed.setter
     def seed(self, seed):
         self._seed = seed
-        self.colormap[1].update_shader(seed)
+        self._seedhash = crc32(bytes(int(2**32 * seed)))
         self._selected_color = self.get_color(self.selected_label)
         self._set_view_slice()
         self.events.selected_label()
@@ -335,6 +337,13 @@ class Labels(Image):
             self.mode = Mode.PAN_ZOOM
             self._reset_history()
 
+    def hash_value(self, data):
+        """Given a label value and seed, generate a floating point value int he range [0.0,1.0)
+        """
+        if data == 0:
+            return 0.0
+        return float(crc32(bytes(data), self._seedhash) & 0xffffffff) / 2**32
+
     def _raw_to_displayed(self, raw):
         """Determine displayed image from a saved raw image and a saved seed.
 
@@ -349,15 +358,17 @@ class Labels(Image):
         Returns
         -------
         image : array
-            Image mapped between 0 and 1 to be displayed.
+            Array converted to pseudo-random float32 in the range [0,1]
         """
-        return raw / raw.max()
+
+        image = np.vectorize(self.hash_value, otypes=[np.float32])(raw)
+        return image
 
     def new_colormap(self):
         self.seed = np.random.rand()
-        self.colormap[1].update_shader(self.seed)
+        self.events.data()
         self.events.colormap()
-
+ 
     def get_color(self, label):
         """Return the color corresponding to a specific label."""
         if label == 0:
